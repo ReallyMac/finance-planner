@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 
 st.set_page_config(page_title="Grok Holistic Finance Planner", layout="wide", page_icon="🧬")
 
-st.title("🧬 Grok Holistic Finance Planner")
+st.title("Kinetic Finance Planner")
 st.caption("Investments • Taxes • Retirement • Estate + Roth Conversions + Sequence of Returns Risk")
 
 # ====================== SIDEBAR INPUTS ======================
@@ -27,6 +27,11 @@ annual_spending = st.sidebar.number_input("Desired Annual Retirement Spending (t
 annual_savings = st.sidebar.number_input("Annual Savings ($/yr)", 0, 1000000, 30000)
 inflation = st.sidebar.slider("Inflation Rate (%)", 1.0, 5.0, 3.0) / 100
 stock_allocation = st.sidebar.slider("Stock Allocation (%)", 0, 100, 60)
+
+# ====================== PRE-COMPUTE KEY VALUES (used across tabs) ======================
+years_to_ret = retirement_age - age
+total_assets = trad_ira + roth_ira + taxable
+projected_portfolio = total_assets * (1.07 ** years_to_ret) + annual_savings * (((1.07 ** years_to_ret) - 1) / 0.07)
 
 # ====================== HELPER FUNCTIONS ======================
 def federal_tax(income: float, status: str) -> float:
@@ -61,22 +66,26 @@ def roth_conversion_sim(trad, roth, annual_convert, years_to_retire, growth=0.07
     return df
 
 def monte_carlo_sor(portfolio, years, withdrawal, mean_return=0.07, std_return=0.15, n_sims=1000, inflation_rate=0.03):
+    np.random.seed(42)  # reproducible results
     success = 0
     paths = []
     for _ in range(n_sims):
-        balance = portfolio
+        balance = float(portfolio)
         path = [balance]
         for y in range(years):
             ret = np.random.normal(mean_return, std_return)
             balance = balance * (1 + ret) - withdrawal * (1 + inflation_rate) ** y
             path.append(max(balance, 0))
-            if balance <= 0: break
+            if balance <= 0:
+                break
         else:
             success += 1
-        paths.append(path[:years + 1])
+        # PAD shorter paths with 0s so np.array works
+        full_path = path + [0.0] * (years + 1 - len(path))
+        paths.append(full_path)
     success_rate = success / n_sims * 100
-    paths = np.array(paths)
-    percentiles = np.percentile(paths, [5, 25, 50, 75, 95], axis=0)
+    paths_arr = np.array(paths)
+    percentiles = np.percentile(paths_arr, [5, 25, 50, 75, 95], axis=0)
     return success_rate, percentiles
 
 # ====================== TABS ======================
@@ -84,11 +93,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["📊 Dashboard", "💼 Inve
 
 with tab1:
     st.subheader("Quick Snapshot")
-    years_to_ret = retirement_age - age
     st.metric("Years to Retirement", years_to_ret)
-    total_assets = trad_ira + roth_ira + taxable
     st.metric("Total Investable Assets", f"${total_assets:,.0f}")
-    projected_portfolio = total_assets * (1.07 ** years_to_ret) + annual_savings * (((1.07 ** years_to_ret) - 1) / 0.07)
     st.metric("Projected Portfolio at Retirement (7% growth)", f"${projected_portfolio:,.0f}")
 
 with tab2:
@@ -112,7 +118,7 @@ with tab4:
     annual_convert_amt = st.number_input("Annual Conversion Amount", 0, 500000, 50000)
     assumed_tax_rate = st.slider("Assumed Marginal Tax Rate on Conversion (%)", 10, 37, 22) / 100
     df_roth = roth_conversion_sim(trad_ira, roth_ira, annual_convert_amt, years_convert, tax_rate=assumed_tax_rate)
-    st.dataframe(df_roth.style.format("${:,.0f}"), use_container_width=True)
+    st.dataframe(df_roth.style.format("${:,.0f}"), width="stretch")   # fixed deprecation
     st.caption("Taxes assumed paid from non-retirement funds. Roth grows tax-free.")
 
 with tab5:
@@ -153,4 +159,4 @@ with tab7:
     st.write("Heirs receive (pre-tax):", f"${projected_estate:,.0f}")
 
 st.divider()
-st.caption("Built live by Grok • Educational prototype only • Not financial advice")
+st.caption("Built live by Grok • Educational prototype only • Not financial advice • Runs great on mobile")
